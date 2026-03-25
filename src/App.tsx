@@ -1,24 +1,29 @@
 import { useEffect, useState } from 'react';
-import { FileText, Search } from 'lucide-react';
+import { Search, Plus, Moon, Sun } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { SkillList } from './components/SkillList';
 import { Editor } from './components/Editor';
 import { useSkillStore } from './store/skillStore';
+import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
 import './App.css';
 
 export default function App() {
-  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const {
+    skills,
+    currentCategory,
+    searchQuery,
+    isLoading,
+    error,
+    loadSkills,
+    setSearchQuery,
+  } = useSkillStore();
+
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const { skills, loadSkills, currentCategory } = useSkillStore();
 
   useEffect(() => {
-    // Load skills from the file system
     loadSkills();
-    
-    // Check system dark mode preference
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setIsDarkMode(prefersDark);
   }, [loadSkills]);
 
   useEffect(() => {
@@ -30,50 +35,124 @@ export default function App() {
   }, [isDarkMode]);
 
   const filteredSkills = skills.filter(skill => {
-    const matchesCategory = currentCategory === 'all' || skill.category === currentCategory;
-    const matchesSearch = skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         skill.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    if (currentCategory !== 'all' && skill.category !== currentCategory) {
+      return false;
+    }
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        skill.description.toLowerCase().includes(query) ||
+        skill.content.toLowerCase().includes(query)
+      );
+    }
+    return true;
   });
 
+  const selectedSkill = selectedSkillId ? skills.find(s => s.id === selectedSkillId) : null;
+
   return (
-    <div className={`flex h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50`}>
-      {/* Left Column: Sidebar */}
-      <Sidebar />
+    <div className="flex h-screen bg-background text-foreground">
+      {/* Sidebar */}
+      <Sidebar
+        currentCategory={currentCategory}
+        onCategoryChange={(cat) => {
+          useSkillStore.setState({ currentCategory: cat });
+          setSelectedSkillId(null);
+        }}
+      />
 
-      {/* Middle Column: Skill List */}
-      <div className="flex-1 flex flex-col border-r border-slate-200 dark:border-slate-800">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2">
-            <Search size={18} className="text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search skills..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex-1 bg-transparent outline-none text-sm"
-            />
-          </div>
-        </div>
-        <SkillList 
-          skills={filteredSkills}
-          selectedSkill={selectedSkill}
-          onSelectSkill={setSelectedSkill}
-        />
-      </div>
-
-      {/* Right Column: Editor */}
-      <div className="flex-1 flex flex-col">
-        {selectedSkill ? (
-          <Editor skillId={selectedSkill} />
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-slate-400">
-            <div className="text-center">
-              <FileText size={48} className="mx-auto mb-4 opacity-50" />
-              <p>Select a skill to view and edit</p>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="border-b bg-card px-6 py-4 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 flex items-center gap-2">
+              <Search className="h-5 w-5 text-muted-foreground" />
+              <Input
+                placeholder="搜索 Skills..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-background"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="icon"
+                variant="ghost"
+                title="创建新 Skill"
+              >
+                <Plus className="h-5 w-5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                title={isDarkMode ? '浅色模式' : '深色模式'}
+              >
+                {isDarkMode ? (
+                  <Sun className="h-5 w-5" />
+                ) : (
+                  <Moon className="h-5 w-5" />
+                )}
+              </Button>
             </div>
           </div>
-        )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="mt-3 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          {/* Loading State */}
+          {isLoading && (
+            <div className="mt-3 text-sm text-muted-foreground">
+              加载中...
+            </div>
+          )}
+        </div>
+
+        {/* Content Area */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Skills List */}
+          <div className="w-64 border-r bg-card overflow-y-auto">
+            {filteredSkills.length === 0 ? (
+              <div className="flex h-full items-center justify-center p-4 text-center">
+                <div className="text-muted-foreground">
+                  {searchQuery ? '没有找到匹配的 Skill' : '暂无 Skill'}
+                </div>
+              </div>
+            ) : (
+              <SkillList
+                skills={filteredSkills}
+                selectedId={selectedSkillId}
+                onSelect={setSelectedSkillId}
+                onDelete={(id) => {
+                  useSkillStore.getState().deleteSkill(id);
+                  if (selectedSkillId === id) {
+                    setSelectedSkillId(null);
+                  }
+                }}
+              />
+            )}
+          </div>
+
+          {/* Editor */}
+          <div className="flex-1 overflow-hidden">
+            {selectedSkill ? (
+              <Editor skill={selectedSkill} />
+            ) : (
+              <div className="flex h-full items-center justify-center bg-background">
+                <div className="text-center text-muted-foreground">
+                  <p className="text-lg font-medium">选择一个 Skill 开始编辑</p>
+                  <p className="mt-2 text-sm">或者创建一个新的 Skill</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

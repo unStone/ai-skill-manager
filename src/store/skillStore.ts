@@ -1,5 +1,5 @@
 import { create as createStore } from 'zustand';
-import { readDir, readTextFile, writeTextFile, remove } from '@tauri-apps/plugin-fs';
+import { readDir, readTextFile, writeTextFile, remove, exists } from '@tauri-apps/plugin-fs';
 import { homeDir } from '@tauri-apps/api/path';
 import * as YAML from 'yaml';
 
@@ -8,6 +8,7 @@ export interface SkillMetadata {
   description: string;
   context?: string;
   allowedTools?: string[];
+  tags?: string[];
 }
 
 export interface Skill {
@@ -19,24 +20,29 @@ export interface Skill {
   content: string;
   metadata: SkillMetadata;
   lastModified: number;
+  tags?: string[];
 }
 
 interface SkillStore {
   skills: Skill[];
   currentCategory: string;
+  searchQuery: string;
   isLoading: boolean;
   error: string | null;
   loadSkills: () => Promise<void>;
   getSkill: (id: string) => Skill | undefined;
-  updateSkill: (id: string, content: string) => Promise<void>;
-  createSkill: (category: string, name: string, content: string) => Promise<void>;
+  getFilteredSkills: () => Skill[];
+  updateSkill: (id: string, content: string, metadata?: SkillMetadata) => Promise<void>;
+  createSkill: (category: string, name: string, content: string, metadata?: SkillMetadata) => Promise<void>;
   deleteSkill: (id: string) => Promise<void>;
   setCurrentCategory: (category: string) => void;
+  setSearchQuery: (query: string) => void;
 }
 
 export const useSkillStore = createStore<SkillStore>((set, get) => ({
   skills: [],
   currentCategory: 'all',
+  searchQuery: '',
   isLoading: false,
   error: null,
 
@@ -49,69 +55,80 @@ export const useSkillStore = createStore<SkillStore>((set, get) => ({
       // Load Claude Skills
       try {
         const claudePath = `${home}/.claude/skills`;
-        const claudeEntries = await readDir(claudePath);
+        const pathExists = await exists(claudePath);
         
-        for (const entry of claudeEntries) {
-          if (entry.isDirectory) {
-            const skillMdPath = `${claudePath}/${entry.name}/SKILL.md`;
-            try {
-              const content = await readTextFile(skillMdPath);
-              const { metadata, body } = parseSkillFile(content);
-              
-              skills.push({
-                id: `claude-${entry.name}`,
-                path: skillMdPath,
-                category: 'claude',
-                name: metadata.name || entry.name,
-                description: metadata.description || '',
-                content: body,
-                metadata,
-                lastModified: Date.now(),
-              });
-            } catch (err) {
-              console.error(`Failed to read skill: ${skillMdPath}`, err);
+        if (pathExists) {
+          const claudeEntries = await readDir(claudePath);
+          
+          for (const entry of claudeEntries) {
+            if (entry.isDirectory) {
+              const skillMdPath = `${claudePath}/${entry.name}/SKILL.md`;
+              try {
+                const content = await readTextFile(skillMdPath);
+                const { metadata, body } = parseSkillFile(content);
+                
+                skills.push({
+                  id: `claude-${entry.name}`,
+                  path: skillMdPath,
+                  category: 'claude',
+                  name: metadata.name || entry.name,
+                  description: metadata.description || '',
+                  content: body,
+                  metadata,
+                  lastModified: Date.now(),
+                  tags: metadata.tags || [],
+                });
+              } catch (err) {
+                console.error(`Failed to read skill: ${skillMdPath}`, err);
+              }
             }
           }
         }
       } catch (err) {
-        console.log('Claude skills directory not found or empty');
+        console.log('Claude skills directory not found or empty', err);
       }
 
       // Load Cursor Rules
       try {
         const cursorPath = `${home}/.cursor/rules`;
-        const cursorEntries = await readDir(cursorPath);
+        const pathExists = await exists(cursorPath);
         
-        for (const entry of cursorEntries) {
-          if (!entry.isDirectory && (entry.name.endsWith('.md') || entry.name.endsWith('.mdc'))) {
-            const rulePath = `${cursorPath}/${entry.name}`;
-            try {
-              const content = await readTextFile(rulePath);
-              const { metadata, body } = parseSkillFile(content);
-              
-              skills.push({
-                id: `cursor-${entry.name}`,
-                path: rulePath,
-                category: 'cursor',
-                name: metadata.name || entry.name.replace(/\.(md|mdc)$/, ''),
-                description: metadata.description || '',
-                content: body,
-                metadata,
-                lastModified: Date.now(),
-              });
-            } catch (err) {
-              console.error(`Failed to read rule: ${rulePath}`, err);
+        if (pathExists) {
+          const cursorEntries = await readDir(cursorPath);
+          
+          for (const entry of cursorEntries) {
+            if (!entry.isDirectory && (entry.name.endsWith('.md') || entry.name.endsWith('.mdc'))) {
+              const rulePath = `${cursorPath}/${entry.name}`;
+              try {
+                const content = await readTextFile(rulePath);
+                const { metadata, body } = parseSkillFile(content);
+                
+                skills.push({
+                  id: `cursor-${entry.name}`,
+                  path: rulePath,
+                  category: 'cursor',
+                  name: metadata.name || entry.name.replace(/\.(md|mdc)$/, ''),
+                  description: metadata.description || '',
+                  content: body,
+                  metadata,
+                  lastModified: Date.now(),
+                  tags: metadata.tags || [],
+                });
+              } catch (err) {
+                console.error(`Failed to read rule: ${rulePath}`, err);
+              }
             }
           }
         }
       } catch (err) {
-        console.log('Cursor rules directory not found or empty');
+        console.log('Cursor rules directory not found or empty', err);
       }
 
       set({ skills, isLoading: false });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to load skills';
       set({ error: errorMsg, isLoading: false });
+      console.error('Error loading skills:', error);
     }
   },
 
@@ -119,16 +136,40 @@ export const useSkillStore = createStore<SkillStore>((set, get) => ({
     return get().skills.find(skill => skill.id === id);
   },
 
-  updateSkill: async (id: string, content: string) => {
+  getFilteredSkills: () => {
+    const { skills, currentCategory, searchQuery } = get();
+    
+    let filtered = skills;
+    
+    // Filter by category
+    if (currentCategory !== 'all') {
+      filtered = filtered.filter(skill => skill.category === currentCategory);
+    }
+    
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(skill =>
+        skill.name.toLowerCase().includes(query) ||
+        skill.description.toLowerCase().includes(query) ||
+        skill.content.toLowerCase().includes(query)
+      );
+    }
+    
+    return filtered;
+  },
+
+  updateSkill: async (id: string, content: string, metadata?: SkillMetadata) => {
     try {
       const skill = get().getSkill(id);
       if (!skill) throw new Error('Skill not found');
 
       // Parse the content to extract metadata and body
-      const { metadata, body } = parseSkillFile(content);
+      const { metadata: parsedMetadata, body } = parseSkillFile(content);
+      const finalMetadata = metadata || parsedMetadata;
       
       // Reconstruct the file content
-      const frontmatter = YAML.stringify(metadata);
+      const frontmatter = YAML.stringify(finalMetadata);
       const fileContent = `---\n${frontmatter}---\n${body}`;
 
       await writeTextFile(skill.path, fileContent);
@@ -137,7 +178,15 @@ export const useSkillStore = createStore<SkillStore>((set, get) => ({
       set({
         skills: get().skills.map(s =>
           s.id === id
-            ? { ...s, content: body, metadata, lastModified: Date.now() }
+            ? { 
+                ...s, 
+                content: body, 
+                metadata: finalMetadata, 
+                name: finalMetadata.name || s.name,
+                description: finalMetadata.description || s.description,
+                tags: finalMetadata.tags || [],
+                lastModified: Date.now() 
+              }
             : s
         ),
       });
@@ -148,24 +197,23 @@ export const useSkillStore = createStore<SkillStore>((set, get) => ({
     }
   },
 
-  createSkill: async (category: string, name: string, content: string) => {
+  createSkill: async (category: string, name: string, content: string, metadata?: SkillMetadata) => {
     try {
       const home = await homeDir();
       const basePath = category === 'claude' ? `${home}/.claude/skills` : `${home}/.cursor/rules`;
       
-      // Create directories if they don't exist
-      try {
-        // Note: The fs plugin doesn't have a createDir function
-        // We'll handle this by catching the error when writing files
-      } catch (err) {
-        // Directory might already exist
-      }
-
       const skillPath = category === 'claude'
         ? `${basePath}/${name}/SKILL.md`
         : `${basePath}/${name}.md`;
 
-      const skillContent = `---\nname: ${name}\ndescription: \ncontext: \nallowedTools: []\n---\n${content}`;
+      const defaultMetadata = metadata || {
+        name,
+        description: '',
+        tags: [],
+      };
+
+      const frontmatter = YAML.stringify(defaultMetadata);
+      const skillContent = `---\n${frontmatter}---\n${content}`;
 
       await writeTextFile(skillPath, skillContent);
 
@@ -197,6 +245,10 @@ export const useSkillStore = createStore<SkillStore>((set, get) => ({
 
   setCurrentCategory: (category: string) => {
     set({ currentCategory: category });
+  },
+
+  setSearchQuery: (query: string) => {
+    set({ searchQuery: query });
   },
 }));
 

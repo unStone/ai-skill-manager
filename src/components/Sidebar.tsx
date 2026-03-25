@@ -1,71 +1,52 @@
-import { Folder, Settings, Moon, Sun } from 'lucide-react';
-import { useState } from 'react';
-import { useSkillStore } from '../store/skillStore';
+import { Folder, Settings } from 'lucide-react';
+import { Button } from './ui/button';
 
-export function Sidebar() {
-  const { currentCategory, setCurrentCategory } = useSkillStore();
-  const [isDarkMode, setIsDarkMode] = useState(false);
+interface SidebarProps {
+  currentCategory: string;
+  onCategoryChange: (category: string) => void;
+}
 
+export function Sidebar({ currentCategory, onCategoryChange }: SidebarProps) {
   const categories = [
-    { id: 'all', name: 'All Skills', icon: Folder },
-    { id: 'claude', name: 'Claude Skills', icon: Folder },
-    { id: 'cursor', name: 'Cursor Rules', icon: Folder },
-    { id: 'custom', name: 'Custom', icon: Folder },
+    { id: 'all', name: 'All Skills' },
+    { id: 'claude', name: 'Claude Skills' },
+    { id: 'cursor', name: 'Cursor Rules' },
+    { id: 'custom', name: 'Custom' },
   ];
 
-  const handleDarkModeToggle = () => {
-    setIsDarkMode(!isDarkMode);
-    if (!isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
-
   return (
-    <div className="w-48 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-slate-200 dark:border-slate-800">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
-          AI Skills
-        </h1>
+    <div className="w-48 border-r bg-card flex flex-col h-screen">
+      {/* Logo/Title */}
+      <div className="border-b px-4 py-6">
+        <h1 className="text-xl font-bold text-foreground">AI Skills</h1>
+        <p className="text-xs text-muted-foreground mt-1">Manage your AI skills</p>
       </div>
 
       {/* Categories */}
-      <nav className="flex-1 overflow-y-auto p-2">
-        {categories.map((category) => {
-          const Icon = category.icon;
-          const isActive = currentCategory === category.id;
-          return (
-            <button
-              key={category.id}
-              onClick={() => setCurrentCategory(category.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-900 dark:text-blue-100'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <Icon size={18} />
-              <span>{category.name}</span>
-            </button>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
+        {categories.map((category) => (
+          <Button
+            key={category.id}
+            variant={currentCategory === category.id ? 'default' : 'ghost'}
+            className="w-full justify-start gap-2"
+            onClick={() => onCategoryChange(category.id)}
+          >
+            <Folder className="h-4 w-4" />
+            <span className="truncate">{category.name}</span>
+          </Button>
+        ))}
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-slate-200 dark:border-slate-800 p-2 space-y-2">
-        <button
-          onClick={handleDarkModeToggle}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      <div className="border-t px-2 py-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2"
         >
-          {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
-          <span>{isDarkMode ? 'Light' : 'Dark'}</span>
-        </button>
-        <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-          <Settings size={18} />
+          <Settings className="h-4 w-4" />
           <span>Settings</span>
-        </button>
+        </Button>
       </div>
     </div>
   );
