@@ -13,13 +13,24 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "ai-skill-manager",
-        "width": 800,
-        "height": 600
+        "title": "AI Skill Manager",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600
       }
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "fs": {
+      "scope": [
+        "$HOME/.claude/**",
+        "$HOME/.cursor/**",
+        "$HOME/.aiskill/**"
+      ]
     }
   },
   "bundle": {

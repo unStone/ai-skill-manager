@@ -1,102 +1,151 @@
-import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Save } from 'lucide-react';
-import { useSkillStore } from '../store/skillStore';
+import { useState, useEffect } from 'react';
+import { Save, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Skill, useSkillStore } from '../store/skillStore';
 import { MarkdownPreview } from './MarkdownPreview';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
 
 interface EditorProps {
-  skillId: string;
+  skill: Skill;
 }
 
-export function Editor({ skillId }: EditorProps) {
-  const { getSkill, updateSkill } = useSkillStore();
-  const skill = getSkill(skillId);
-  const [content, setContent] = useState('');
+export function Editor({ skill }: EditorProps) {
+  const [content, setContent] = useState(skill.content);
+  const [skillName, setSkillName] = useState(skill.name);
+  const [skillDescription, setSkillDescription] = useState(skill.description);
   const [showPreview, setShowPreview] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  const { updateSkill, deleteSkill } = useSkillStore();
 
   useEffect(() => {
-    if (skill) {
-      setContent(skill.content);
-      setHasChanges(false);
-    }
+    setContent(skill.content);
+    setSkillName(skill.name);
+    setSkillDescription(skill.description);
+    setSaveStatus('idle');
   }, [skill]);
 
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setContent(e.target.value);
-    setHasChanges(true);
-  };
-
   const handleSave = async () => {
-    if (!skill) return;
-    
-    setIsSaving(true);
     try {
-      await updateSkill(skillId, content);
-      setHasChanges(false);
+      setIsSaving(true);
+      setSaveStatus('saving');
+
+      const metadata = {
+        ...skill.metadata,
+        name: skillName,
+        description: skillDescription,
+      };
+
+      await updateSkill(skill.id, content, metadata);
+
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
-      console.error('Failed to save skill:', error);
+      console.error('Failed to save:', error);
+      setSaveStatus('idle');
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (!skill) {
-    return (
-      <div className="flex items-center justify-center h-full text-slate-400">
-        <p>Skill not found</p>
-      </div>
-    );
-  }
+  const handleDelete = async () => {
+    if (!confirm(`确定要删除 "${skill.name}" 吗？`)) {
+      return;
+    }
+
+    try {
+      await deleteSkill(skill.id);
+    } catch (error) {
+      console.error('Failed to delete:', error);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-950">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-            {skill.name}
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {skill.description}
-          </p>
+      <div className="border-b bg-card px-6 py-4 shadow-sm">
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="flex-1">
+            <Input
+              value={skillName}
+              onChange={(e) => setSkillName(e.target.value)}
+              placeholder="Skill 名称"
+              className="font-semibold text-lg mb-2"
+            />
+            <Input
+              value={skillDescription}
+              onChange={(e) => setSkillDescription(e.target.value)}
+              placeholder="描述"
+              className="text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowPreview(!showPreview)}
+              title={showPreview ? '隐藏预览' : '显示预览'}
+            >
+              {showPreview ? (
+                <EyeOff className="h-5 w-5" />
+              ) : (
+                <Eye className="h-5 w-5" />
+              )}
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving}
+              variant={saveStatus === 'saved' ? 'default' : 'outline'}
+              className="gap-2"
+            >
+              <Save className="h-4 w-4" />
+              {saveStatus === 'saving' ? '保存中...' : saveStatus === 'saved' ? '已保存' : '保存'}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleDelete}
+              className="text-destructive hover:text-destructive"
+            >
+              <Trash2 className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowPreview(!showPreview)}
-            className="p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-            title={showPreview ? 'Hide preview' : 'Show preview'}
-          >
-            {showPreview ? <EyeOff size={20} /> : <Eye size={20} />}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!hasChanges || isSaving}
-            className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <Save size={18} />
-            <span>{isSaving ? 'Saving...' : 'Save'}</span>
-          </button>
+
+        {/* Category & Path */}
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="px-2 py-1 rounded-full bg-secondary text-secondary-foreground">
+            {skill.category === 'claude' ? 'Claude Skills' : skill.category === 'cursor' ? 'Cursor Rules' : 'Custom'}
+          </span>
+          <span className="truncate">{skill.path}</span>
         </div>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Editor & Preview */}
+      <div className="flex-1 flex overflow-hidden gap-4 p-4">
         {/* Editor */}
-        <div className={`flex flex-col ${showPreview ? 'w-1/2' : 'w-full'} border-r border-slate-200 dark:border-slate-800`}>
+        <div className={`flex flex-col ${showPreview ? 'w-1/2' : 'w-full'} overflow-hidden`}>
+          <label className="text-xs font-semibold text-muted-foreground mb-2">
+            编辑
+          </label>
           <textarea
             value={content}
-            onChange={handleContentChange}
-            className="flex-1 p-4 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-mono text-sm outline-none resize-none"
-            placeholder="Enter your skill content here..."
-            spellCheck="false"
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="输入 Markdown 内容..."
+            className="flex-1 rounded-lg border border-input bg-background p-4 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
         {/* Preview */}
         {showPreview && (
-          <div className="flex-1 overflow-y-auto p-4 bg-slate-50 dark:bg-slate-900">
-            <MarkdownPreview content={content} />
+          <div className="w-1/2 flex flex-col overflow-hidden border-l">
+            <label className="text-xs font-semibold text-muted-foreground mb-2">
+              预览
+            </label>
+            <div className="flex-1 overflow-y-auto rounded-lg border border-input bg-card p-4">
+              <MarkdownPreview content={content} />
+            </div>
           </div>
         )}
       </div>
